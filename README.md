@@ -33,6 +33,8 @@ concurrency:
 jobs:
   deepwork-review:
     runs-on: ubuntu-latest
+    # Don't re-run on commits pushed by the action itself
+    if: github.actor != 'deepwork-action[bot]'
     permissions:
       contents: write       # push auto-fix commits to the PR branch
       pull-requests: write  # post inline PR review comments
@@ -58,9 +60,9 @@ jobs:
 |-------|----------|---------|-------------|
 | `anthropic_api_key` | ✅ | — | Anthropic API key for Claude Code |
 | `github_token` | ✅ | — | GitHub token with `contents: write` and `pull-requests: write` |
-| `model` | ❌ | `claude-sonnet-4-5` | Claude model to use |
+| `model` | ❌ | `claude-opus-4-6` | Claude model to use |
 | `max_turns` | ❌ | `50` | Maximum agentic turns for Claude Code |
-| `commit_message` | ❌ | `chore: apply DeepWork review suggestions [skip ci]` | Commit message for auto-committed changes |
+| `commit_message` | ❌ | `chore: apply DeepWork review suggestions` | Commit message for auto-committed changes |
 
 ## What Gets Changed
 
@@ -81,14 +83,13 @@ After pushing the auto-fix commit, the action posts a GitHub PR review with inli
 
 ## Caching
 
-Review state is cached per PR using GitHub Actions cache, keyed on the PR number. This means already-passed reviews are not re-run when you push new commits to the same PR — only code that has changed since the last review is re-evaluated.
+Review state is cached per PR using GitHub Actions cache, keyed on the PR number. This means already-passed reviews are not re-run when you push new commits to the same PR — only code that has changed since the last review is re-evaluated. THIS IS A MAJOR TOKEN COST SAVER!!!
 
 ## Security
 
 - Claude Code is installed and run via the official [`anthropics/claude-code-base-action`](https://github.com/anthropics/claude-code-base-action).
 - The action runs with `--dangerously-skip-permissions` in a sandboxed GitHub Actions runner. It has no access to secrets beyond what you explicitly provide.
-- Auto-fix commits are signed with the `deepwork-action[bot]` identity.
-- The `[skip ci]` suffix on the default commit message prevents the action from triggering itself recursively.
+- Auto-fix commits are pushed under the `deepwork-action[bot]` identity. The example workflow includes `if: github.actor != 'deepwork-action[bot]'` at the job level so the action never triggers itself recursively.
 
 ## License
 

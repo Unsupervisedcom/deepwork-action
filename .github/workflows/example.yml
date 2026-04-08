@@ -12,6 +12,8 @@ concurrency:
 jobs:
   deepwork-review:
     runs-on: ubuntu-latest
+    # Don't re-run on commits pushed by the action itself
+    if: github.actor != 'deepwork-action[bot]'
     # Required permissions
     permissions:
       contents: write        # push auto-fix commits to the PR branch
@@ -34,6 +36,6 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           # Optional overrides:
-          # model: claude-sonnet-4-5
+          # model: claude-opus-4-6
           # max_turns: '50'
-          # commit_message: 'chore: apply DeepWork review suggestions [skip ci]'
+          # commit_message: 'chore: apply DeepWork review suggestions'

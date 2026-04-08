@@ -14,9 +14,9 @@ inputs:
     description: 'GitHub token with write access to commit changes and post review comments'
     required: true
   model:
-    description: 'Claude model to use (e.g. claude-sonnet-4-5, claude-opus-4-5)'
+    description: 'Claude model to use (e.g. claude-sonnet-4-6, claude-opus-4-6)'
     required: false
-    default: 'claude-sonnet-4-5'
+    default: 'claude-opus-4-6'
   max_turns:
     description: 'Maximum number of agentic turns for Claude Code'
     required: false
@@ -24,7 +24,7 @@ inputs:
   commit_message:
     description: 'Commit message for auto-committed review changes'
     required: false
-    default: 'chore: apply DeepWork review suggestions [skip ci]'
+    default: 'chore: apply DeepWork review suggestions'
 
 runs:
   using: 'composite'
