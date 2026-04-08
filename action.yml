@@ -29,45 +29,10 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Set up Node.js
-      uses: actions/setup-node@v6
-      with:
-        node-version: '24'
-
-    - name: Install Claude Code CLI
-      shell: bash
-      run: |
-        # Install the latest Claude Code CLI.
-        # Minimum safe version is 2.1.53 (fixes all known CVEs as of this action's release).
-        npm install -g @anthropic-ai/claude-code
-        # Verify the installed version meets the minimum requirement.
-        INSTALLED=$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-        MAJOR=$(echo "$INSTALLED" | cut -d. -f1)
-        MINOR=$(echo "$INSTALLED" | cut -d. -f2)
-        PATCH=$(echo "$INSTALLED" | cut -d. -f3)
-        if [ "$MAJOR" -lt 2 ] || \
-           ([ "$MAJOR" -eq 2 ] && [ "$MINOR" -lt 1 ]) || \
-           ([ "$MAJOR" -eq 2 ] && [ "$MINOR" -eq 1 ] && [ "$PATCH" -lt 53 ]); then
-          echo "ERROR: claude-code $INSTALLED is below the minimum safe version 2.1.53" >&2
-          exit 1
-        fi
-        echo "claude-code $INSTALLED meets minimum version requirement."
-
     - name: Install uv
       uses: astral-sh/setup-uv@v5
       with:
         version: 'latest'
-
-    - name: Clone deepwork Claude plugin
-      shell: bash
-      run: |
-        PLUGIN_DIR="/tmp/deepwork-plugin"
-        git clone --depth 1 --filter=blob:none --sparse \
-          https://github.com/Unsupervisedcom/deepwork.git \
-          "$PLUGIN_DIR"
-        cd "$PLUGIN_DIR"
-        git sparse-checkout set plugins/claude
-        echo "Plugin ready at $PLUGIN_DIR/plugins/claude"
 
     - name: Restore DeepWork review cache
       uses: actions/cache@v4
@@ -89,54 +54,25 @@ runs:
             echo "Warning: could not fetch base branch '$BASE_REF'; diff detection may be incomplete"
         fi
 
-    - name: Prepare MCP config
+    - name: Prepare review run
       shell: bash
       run: |
-        # Merge deepwork's MCP server into the project's .mcp.json (if any), or create one.
-        # We always restore the original file afterwards (see "Restore MCP config" step).
-
-        if [ -f .mcp.json ]; then
-          cp .mcp.json /tmp/deepwork-original-mcp.json
-        else
-          touch /tmp/deepwork-no-original-mcp  # flag: no original file existed
-        fi
-
-        python3 "${{ github.action_path }}/scripts/merge-mcp-config.py" .mcp.json
-
-    - name: Run DeepWork review with Claude Code
-      shell: bash
-      env:
-        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        GH_TOKEN: ${{ inputs.github_token }}
-      run: |
-        PLUGIN_DIR="/tmp/deepwork-plugin/plugins/claude"
-        PROMPT_FILE="${{ github.action_path }}/prompts/review.txt"
-
         # Clean up any leftover changes file from a previous run.
         rm -f /tmp/deepwork_changes.json
 
-        # Run Claude Code with the deepwork plugin and the review prompt.
-        #
-        # --plugin-dir                loads DeepWork skills, hooks, and MCP config
-        # --print                     non-interactive / CI mode
-        # --dangerously-skip-permissions  suppress all permission prompts
-        claude \
-          --print \
-          --dangerously-skip-permissions \
-          --model "${{ inputs.model }}" \
-          --max-turns "${{ inputs.max_turns }}" \
-          --plugin-dir "$PLUGIN_DIR" \
-          < "$PROMPT_FILE" || true
-
-    - name: Restore MCP config
-      if: always()
-      shell: bash
-      run: |
-        if [ -f /tmp/deepwork-original-mcp.json ]; then
-          cp /tmp/deepwork-original-mcp.json .mcp.json
-        elif [ -f /tmp/deepwork-no-original-mcp ]; then
-          rm -f .mcp.json
-        fi
+    - name: Run DeepWork review with Claude Code
+      uses: anthropics/claude-code-base-action@beta
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+      with:
+        anthropic_api_key: ${{ inputs.anthropic_api_key }}
+        prompt_file: ${{ github.action_path }}/prompts/review.txt
+        plugin_marketplaces: https://github.com/Unsupervisedcom/deepwork.git
+        plugins: deepwork@deepwork-plugins
+        claude_args: >-
+          --dangerously-skip-permissions
+          --model ${{ inputs.model }}
+          --max-turns ${{ inputs.max_turns }}
 
     - name: Commit and push changes
       id: commit

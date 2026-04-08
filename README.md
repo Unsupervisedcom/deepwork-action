@@ -4,10 +4,11 @@ A prebuilt GitHub Action that runs [Claude Code](https://docs.anthropic.com/en/d
 
 ## How It Works
 
-1. **DeepWork review** — Claude Code runs the `/review` skill, which reads your `.deepreview` config files to discover review rules, diffs the PR branch, and dispatches parallel review agents scoped to exactly the right files.
-2. **Apply changes** — Claude applies every suggested improvement (bugs, style, performance, security, docs, refactoring) without asking for confirmation.
-3. **Auto-commit** — All file changes are committed back to the PR branch under the `deepwork-action[bot]` identity.
-4. **Inline PR comments** — A GitHub PR review is posted with one inline comment per changed file, describing what was changed and why, so your team can review each improvement.
+1. **DeepWork plugin install** — The action installs the DeepWork plugin from the marketplace using Claude Code's native plugin system, loading all review skills, hooks, and MCP server configuration automatically.
+2. **DeepWork review** — Claude Code runs the `/review` skill, which reads your `.deepreview` config files to discover review rules, diffs the PR branch, and dispatches parallel review agents scoped to exactly the right files.
+3. **Apply changes** — Claude applies every suggested improvement (bugs, style, performance, security, docs, refactoring) without asking for confirmation.
+4. **Auto-commit** — All file changes are committed back to the PR branch under the `deepwork-action[bot]` identity.
+5. **Inline PR comments** — A GitHub PR review is posted with one inline comment per changed file, describing what was changed and why, so your team can review each improvement.
 
 ## Prerequisites
 
@@ -78,9 +79,14 @@ If no `.deepreview` rules are configured in the repository, the action exits cle
 
 After pushing the auto-fix commit, the action posts a GitHub PR review with inline comments on each changed file. The comments appear in the **Files Changed** tab and describe what was changed and why, so your team can accept, request modifications, or revert individual changes as needed.
 
+## Caching
+
+Review state is cached per PR using GitHub Actions cache, keyed on the PR number. This means already-passed reviews are not re-run when you push new commits to the same PR — only code that has changed since the last review is re-evaluated.
+
 ## Security
 
-- The action runs Claude with `--dangerously-skip-permissions` in a sandboxed GitHub Actions runner. It has no access to secrets beyond what you explicitly provide.
+- Claude Code is installed and run via the official [`anthropics/claude-code-base-action`](https://github.com/anthropics/claude-code-base-action).
+- The action runs with `--dangerously-skip-permissions` in a sandboxed GitHub Actions runner. It has no access to secrets beyond what you explicitly provide.
 - Auto-fix commits are signed with the `deepwork-action[bot]` identity.
 - The `[skip ci]` suffix on the default commit message prevents the action from triggering itself recursively.
 
