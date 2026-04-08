@@ -30,9 +30,9 @@ runs:
   using: 'composite'
   steps:
     - name: Set up Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v6
       with:
-        node-version: '20'
+        node-version: '24'
 
     - name: Install Claude Code CLI
       shell: bash
@@ -68,6 +68,17 @@ runs:
         cd "$PLUGIN_DIR"
         git sparse-checkout set plugins/claude
         echo "Plugin ready at $PLUGIN_DIR/plugins/claude"
+
+    - name: Restore DeepWork review cache
+      uses: actions/cache@v4
+      with:
+        path: .deepwork/tmp
+        # A unique save key per run ensures the cache is always updated with the
+        # latest review state after each run. restore-keys picks up the most recent
+        # cache for this PR so already-passed reviews are not re-run.
+        key: deepwork-review-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
+        restore-keys: |
+          deepwork-review-pr-${{ github.event.pull_request.number }}-
 
     - name: Fetch base branch for git diff
       shell: bash
