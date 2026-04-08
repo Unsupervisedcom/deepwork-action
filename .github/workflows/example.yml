@@ -1,0 +1,38 @@
+name: DeepWork Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Prevent concurrent runs on the same PR
+concurrency:
+  group: deepwork-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  deepwork-review:
+    runs-on: ubuntu-latest
+    # Required permissions
+    permissions:
+      contents: write        # push auto-fix commits to the PR branch
+      pull-requests: write   # post inline PR review comments
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history so DeepWork can diff against the base branch
+          fetch-depth: 0
+          # Use the merge ref so we operate on the PR's head commit
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run DeepWork Review
+        uses: Unsupervisedcom/deepwork-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Optional overrides:
+          # model: claude-sonnet-4-5
+          # max_turns: '50'
+          # commit_message: 'chore: apply DeepWork review suggestions [skip ci]'

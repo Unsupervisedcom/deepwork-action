@@ -1,0 +1,167 @@
+name: 'DeepWork Review Action'
+description: 'Run DeepWork reviews via Claude Code on a PR, auto-commit improvements, and add inline PR review comments'
+author: 'Unsupervisedcom'
+
+branding:
+  icon: 'check-circle'
+  color: 'blue'
+
+inputs:
+  anthropic_api_key:
+    description: 'Anthropic API key for Claude Code'
+    required: true
+  github_token:
+    description: 'GitHub token with write access to commit changes and post review comments'
+    required: true
+  model:
+    description: 'Claude model to use (e.g. claude-sonnet-4-5, claude-opus-4-5)'
+    required: false
+    default: 'claude-sonnet-4-5'
+  max_turns:
+    description: 'Maximum number of agentic turns for Claude Code'
+    required: false
+    default: '50'
+  commit_message:
+    description: 'Commit message for auto-committed review changes'
+    required: false
+    default: 'chore: apply DeepWork review suggestions [skip ci]'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install Claude Code CLI
+      shell: bash
+      run: |
+        # Install the latest Claude Code CLI.
+        # Minimum safe version is 2.1.53 (fixes all known CVEs as of this action's release).
+        npm install -g @anthropic-ai/claude-code
+        # Verify the installed version meets the minimum requirement.
+        INSTALLED=$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        MAJOR=$(echo "$INSTALLED" | cut -d. -f1)
+        MINOR=$(echo "$INSTALLED" | cut -d. -f2)
+        PATCH=$(echo "$INSTALLED" | cut -d. -f3)
+        if [ "$MAJOR" -lt 2 ] || \
+           ([ "$MAJOR" -eq 2 ] && [ "$MINOR" -lt 1 ]) || \
+           ([ "$MAJOR" -eq 2 ] && [ "$MINOR" -eq 1 ] && [ "$PATCH" -lt 53 ]); then
+          echo "ERROR: claude-code $INSTALLED is below the minimum safe version 2.1.53" >&2
+          exit 1
+        fi
+        echo "claude-code $INSTALLED meets minimum version requirement."
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        version: 'latest'
+
+    - name: Clone deepwork Claude plugin
+      shell: bash
+      run: |
+        PLUGIN_DIR="/tmp/deepwork-plugin"
+        git clone --depth 1 --filter=blob:none --sparse \
+          https://github.com/Unsupervisedcom/deepwork.git \
+          "$PLUGIN_DIR"
+        cd "$PLUGIN_DIR"
+        git sparse-checkout set plugins/claude
+        echo "Plugin ready at $PLUGIN_DIR/plugins/claude"
+
+    - name: Fetch base branch for git diff
+      shell: bash
+      run: |
+        BASE_REF="${{ github.event.pull_request.base.ref }}"
+        if [ -n "$BASE_REF" ]; then
+          git fetch origin "$BASE_REF" --depth=1 || \
+            echo "Warning: could not fetch base branch '$BASE_REF'; diff detection may be incomplete"
+        fi
+
+    - name: Prepare MCP config
+      shell: bash
+      run: |
+        # Merge deepwork's MCP server into the project's .mcp.json (if any), or create one.
+        # We always restore the original file afterwards (see "Restore MCP config" step).
+
+        if [ -f .mcp.json ]; then
+          cp .mcp.json /tmp/deepwork-original-mcp.json
+        else
+          touch /tmp/deepwork-no-original-mcp  # flag: no original file existed
+        fi
+
+        python3 "${{ github.action_path }}/scripts/merge-mcp-config.py" .mcp.json
+
+    - name: Run DeepWork review with Claude Code
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        GH_TOKEN: ${{ inputs.github_token }}
+      run: |
+        PLUGIN_DIR="/tmp/deepwork-plugin/plugins/claude"
+        PROMPT_FILE="${{ github.action_path }}/prompts/review.txt"
+
+        # Clean up any leftover changes file from a previous run.
+        rm -f /tmp/deepwork_changes.json
+
+        # Run Claude Code with the deepwork plugin and the review prompt.
+        #
+        # --plugin-dir                loads DeepWork skills, hooks, and MCP config
+        # --print                     non-interactive / CI mode
+        # --dangerously-skip-permissions  suppress all permission prompts
+        claude \
+          --print \
+          --dangerously-skip-permissions \
+          --model "${{ inputs.model }}" \
+          --max-turns "${{ inputs.max_turns }}" \
+          --plugin-dir "$PLUGIN_DIR" \
+          < "$PROMPT_FILE" || true
+
+    - name: Restore MCP config
+      if: always()
+      shell: bash
+      run: |
+        if [ -f /tmp/deepwork-original-mcp.json ]; then
+          cp /tmp/deepwork-original-mcp.json .mcp.json
+        elif [ -f /tmp/deepwork-no-original-mcp ]; then
+          rm -f .mcp.json
+        fi
+
+    - name: Commit and push changes
+      id: commit
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+      run: |
+        git config user.name "deepwork-action[bot]"
+        git config user.email "deepwork-action[bot]@users.noreply.github.com"
+
+        # Check for any modified, added, or deleted tracked files
+        if git diff --quiet && git diff --cached --quiet \
+            && [ -z "$(git ls-files --others --exclude-standard)" ]; then
+          echo "No changes to commit."
+          echo "changes_made=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        echo "changes_made=true" >> "$GITHUB_OUTPUT"
+
+        git add -A
+        git commit -m "${{ inputs.commit_message }}"
+
+        # Authenticate push via the provided token.
+        REPO="${{ github.repository }}"
+        git remote set-url origin \
+          "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git"
+        git push
+
+    - name: Post inline PR review comments
+      if: steps.commit.outputs.changes_made == 'true' && github.event.pull_request.number != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_BASE_REF: ${{ github.event.pull_request.base.ref }}
+      run: |
+        python3 "${{ github.action_path }}/scripts/post-review-comments.py"

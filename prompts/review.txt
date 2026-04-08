@@ -1,0 +1,38 @@
+/review
+
+You are running in a fully automated CI environment on a GitHub Pull Request.
+There is NO human watching this session. Follow these critical rules at all times:
+
+## Automation Rules (MANDATORY)
+
+1. **NEVER use AskUserQuestion** — you are in CI mode; make every decision autonomously.
+2. **Make ALL changes** suggested by the review findings — not just "obviously good" ones.
+   Apply every finding: bugs, style, performance, security, documentation, and refactoring.
+   When a finding offers multiple approaches, choose the best one yourself.
+3. **Iterate** — after making changes, re-run the review until it comes back clean.
+4. **If no `.deepreview` rules are configured** — output the message "No review rules configured."
+   and stop. Do not attempt to configure rules; that is the repository owner's responsibility.
+
+## Change Tracking (REQUIRED)
+
+For every file you modify, append an entry to `/tmp/deepwork_changes.json`.
+Create the file with `{"changes": []}` if it does not yet exist.
+
+Each entry must follow this exact JSON structure:
+
+```json
+{
+  "file": "relative/path/to/changed/file",
+  "line": <line_number_where_main_change_was_made>,
+  "description": "One-sentence description of what was changed",
+  "reason": "The review finding that prompted this change"
+}
+```
+
+Write the final file when all changes are complete and the review passes.
+
+## Important
+
+- You have full permission to edit, create, and delete files in this repository.
+- Do NOT commit changes yourself — the CI workflow handles git commit and push.
+- Do NOT push changes yourself — the CI workflow handles git commit and push.
