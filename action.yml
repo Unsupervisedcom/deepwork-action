@@ -1,0 +1,114 @@
+name: 'DeepWork Review Action'
+description: 'Run DeepWork reviews via Claude Code on a PR, auto-commit improvements, and add inline PR review comments'
+author: 'Unsupervisedcom'
+
+branding:
+  icon: 'check-circle'
+  color: 'blue'
+
+inputs:
+  anthropic_api_key:
+    description: 'Anthropic API key for Claude Code'
+    required: true
+  github_token:
+    description: 'GitHub token with write access to commit changes and post review comments'
+    required: true
+  model:
+    description: 'Claude model to use (e.g. claude-sonnet-4-6, claude-opus-4-6)'
+    required: false
+    default: 'claude-opus-4-6'
+  max_turns:
+    description: 'Maximum number of agentic turns for Claude Code'
+    required: false
+    default: '50'
+  commit_message:
+    description: 'Commit message for auto-committed review changes'
+    required: false
+    default: 'chore: apply DeepWork review suggestions'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        version: 'latest'
+
+    - name: Restore DeepWork review cache
+      uses: actions/cache@v4
+      with:
+        path: .deepwork/tmp
+        # A unique save key per run ensures the cache is always updated with the
+        # latest review state after each run. restore-keys picks up the most recent
+        # cache for this PR so already-passed reviews are not re-run.
+        key: deepwork-review-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
+        restore-keys: |
+          deepwork-review-pr-${{ github.event.pull_request.number }}-
+
+    - name: Fetch base branch for git diff
+      shell: bash
+      run: |
+        BASE_REF="${{ github.event.pull_request.base.ref }}"
+        if [ -n "$BASE_REF" ]; then
+          git fetch origin "$BASE_REF" --depth=1 || \
+            echo "Warning: could not fetch base branch '$BASE_REF'; diff detection may be incomplete"
+        fi
+
+    - name: Prepare review run
+      shell: bash
+      run: |
+        # Clean up any leftover changes file from a previous run.
+        rm -f /tmp/deepwork_changes.json
+
+    - name: Run DeepWork review with Claude Code
+      uses: anthropics/claude-code-base-action@beta
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+      with:
+        anthropic_api_key: ${{ inputs.anthropic_api_key }}
+        prompt_file: ${{ github.action_path }}/prompts/review.txt
+        plugin_marketplaces: https://github.com/Unsupervisedcom/deepwork.git
+        plugins: deepwork@deepwork-plugins
+        claude_args: >-
+          --dangerously-skip-permissions
+          --model ${{ inputs.model }}
+          --max-turns ${{ inputs.max_turns }}
+
+    - name: Commit and push changes
+      id: commit
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+      run: |
+        git config user.name "deepwork-action[bot]"
+        git config user.email "deepwork-action[bot]@users.noreply.github.com"
+
+        # Check for any modified, added, or deleted tracked files
+        if git diff --quiet && git diff --cached --quiet \
+            && [ -z "$(git ls-files --others --exclude-standard)" ]; then
+          echo "No changes to commit."
+          echo "changes_made=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        echo "changes_made=true" >> "$GITHUB_OUTPUT"
+
+        git add -A
+        git commit -m "${{ inputs.commit_message }}"
+
+        # Authenticate push via the provided token.
+        REPO="${{ github.repository }}"
+        git remote set-url origin \
+          "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git"
+        git push
+
+    - name: Post inline PR review comments
+      if: steps.commit.outputs.changes_made == 'true' && github.event.pull_request.number != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_BASE_REF: ${{ github.event.pull_request.base.ref }}
+      run: |
+        python3 "${{ github.action_path }}/scripts/post-review-comments.py"
