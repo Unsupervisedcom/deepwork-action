@@ -1,0 +1,223 @@
+prompt_best_practices:
+  description: "Review prompt/instruction files for Anthropic prompt engineering best practices."
+  match:
+    include:
+      - "**/CLAUDE.md"
+      - "**/AGENTS.md"
+      - ".claude/**/*.md"
+      - "prompts/*.txt"
+      - "prompts/*.md"
+      - ".deepwork/review/*.md"
+      - ".deepwork/jobs/**/*.md"
+  review:
+    strategy: individual
+    instructions: |
+      Review this file as a prompt or instruction file, evaluating it
+      against Anthropic's prompt engineering best practices.
+
+      For each issue found, report:
+      1. Location (section or line)
+      2. Severity (Critical / High / Medium / Low)
+      3. Best practice violated
+      4. Description of the issue
+      5. Suggested improvement
+
+      Check for:
+      - Clarity and specificity (concrete criteria vs vague language like
+        "do a good job", "be thorough")
+      - Structure and formatting (XML tags, headers, numbered lists for
+        distinct sections; logical separation of context, instructions,
+        constraints, output format)
+      - Role and context (enough context for the AI, explicit assumptions)
+      - Examples for complex/nuanced tasks (few-shot, edge cases)
+      - Output format specification (JSON, markdown, length constraints)
+      - Prompt anti-patterns (contradictions, instruction overload without
+        ranking, critical instructions buried in walls of text, relying on
+        the AI to infer important constraints)
+      - Variable/placeholder clarity (only when the prompt parameterizes
+        dynamic inputs)
+
+      Use judgment proportional to the file's complexity. A short, focused
+      instruction for a simple task does not need few-shot examples or XML
+      tags. Do not flag issues for best practices that are irrelevant to the
+      file's purpose.
+
+      Note: prompts/review.txt is the production prompt that this action
+      ships to Claude Code in CI. It is a CRITICAL file for this repo —
+      review it strictly, especially the "Automation Rules" section, the
+      change-tracking JSON contract, and the no-commit/no-push instructions.
+
+update_action_surface_docs:
+  description: "Keep README.md and CLAUDE.md in sync with action.yml, the production prompt, the comment-posting script, and the example workflow."
+  match:
+    include:
+      - "action.yml"
+      - "prompts/review.txt"
+      - "scripts/post-review-comments.py"
+      - ".github/workflows/example.yml"
+      - "README.md"
+      - "CLAUDE.md"
+  review:
+    strategy: matches_together
+    instructions: |
+      When source files change, check whether the following documentation
+      files need updating:
+      - README.md
+      - CLAUDE.md
+
+      Read each documentation file and compare its content against the
+      changed source files. Flag any sections that are now outdated or
+      inaccurate. If a documentation file itself was changed, verify the
+      updates are correct and consistent with the source files.
+
+      ## High-risk drift points in README.md
+
+      1. The "Inputs" table — every input listed must exist in action.yml
+         with the documented default. Defaults to verify: model, max_turns,
+         commit_message. If action.yml adds, removes, or renames an input,
+         the table is wrong.
+
+      2. The "How It Works" 5-step list — must mirror action.yml's composite
+         steps in order (cache restore, fetch base, run
+         claude-code-base-action, commit & push, post inline review comments).
+
+      3. The "Usage" section's example workflow — must stay aligned with
+         .github/workflows/example.yml. The concurrency group, the
+         `if: github.actor != 'deepwork-action[bot]'` self-trigger guard,
+         the permissions block, the checkout config, and the action
+         invocation must all match. If example.yml is updated, README's
+         snippet must be updated to match (or vice versa).
+
+      4. The "Security" section — claims about which underlying action is
+         used (`anthropics/claude-code-base-action`), the
+         `--dangerously-skip-permissions` flag, and the `deepwork-action[bot]`
+         identity. These must match the current action.yml.
+
+      5. The "Caching" section — claims caching of `.deepwork/tmp` keyed on
+         PR number. If action.yml's cache step changes its path or key
+         strategy, this section is wrong.
+
+      6. The "Review Comments" section — describes one inline comment per
+         changed file in the Files Changed tab. If
+         scripts/post-review-comments.py changes its comment grouping
+         strategy, this is wrong.
+
+      7. The auto-commit guarantees — README claims Claude does NOT
+         commit/push and that the workflow handles it. This is enforced by
+         prompts/review.txt's "Important" section. If review.txt's contract
+         changes, the README description may need to change too.
+
+      ## High-risk drift points in CLAUDE.md
+
+      8. The "End-to-end flow" numbered list (steps 1-6) must mirror
+         action.yml's composite step list in order. CLAUDE.md names specific
+         arguments like `--dangerously-skip-permissions`,
+         `plugin_marketplaces`, and `prompts/review.txt`; verify each still
+         appears in action.yml.
+
+      9. The "State files crossing process boundaries" table must match the
+         actual JSON schema in prompts/review.txt
+         (`{"file", "line", "description", "reason"}`) AND the function names
+         `load_changes_by_file` and `build_comment_body` in
+         scripts/post-review-comments.py. If review.txt's schema changes or
+         either function is renamed, the table is wrong.
+
+      10. The "Self-trigger guard" section's literal `deepwork-action[bot]`
+          must match action.yml's commit step user.name AND the
+          `if: github.actor != 'deepwork-action[bot]'` guard in
+          .github/workflows/example.yml. All three must stay synchronized.
+
+      11. The "Repository layout" bullet list must reflect the actual
+          top-level directories. Adding a new top-level directory (e.g.,
+          `lib/`, `tests/`) means CLAUDE.md's layout section is incomplete.
+
+      12. CLAUDE.md asserts the entire action is defined in "action.yml, one
+          prompt file, and one Python script". Adding a second prompt file
+          or script makes that claim wrong.
+    additional_context:
+      unchanged_matching_files: true
+
+python_code_review:
+  description: "Review Python files against project conventions, plus DRY and comment-accuracy checks."
+  match:
+    include:
+      - "**/*.py"
+    exclude:
+      - "**/__pycache__/**"
+      - "**/.venv/**"
+  review:
+    strategy: individual
+    instructions: |
+      Review this Python file against the project's conventions documented in
+      `.deepwork/review/python_conventions.md`. Read that file first.
+
+      Check for:
+      - Module structure: shebang, module docstring, `from __future__ import
+        annotations`, import ordering (stdlib only when possible), section
+        banner comments for logical separation in single-file scripts.
+      - Naming and types: snake_case, built-in generic type hints
+        (`list[str]`, not `typing.List`), explicit return types on every
+        function, sparing use of `Any`.
+      - Functions and structure: small named top-level functions, `main()`
+        orchestration entry point, no gratuitous classes or dataclasses.
+      - I/O and shell commands: `subprocess.run(..., capture_output=True,
+        text=True)` via a `run()` wrapper, `pathlib.Path` for file I/O,
+        `os.environ.get("NAME", default)` not raw indexing for inputs that
+        might be missing.
+      - Error handling: narrow exception types (never bare `except:` or
+        `except Exception:`), warnings printed to `sys.stderr`. Non-fatal
+        failures should `sys.exit(0)` to avoid failing the calling CI step;
+        use `sys.exit(1)` only for actually broken state.
+      - Strings: f-strings only, parenthesized multi-line concatenation.
+      - Docstrings: triple-quoted, one-line summaries unless the function
+        does something subtle that justifies more.
+
+      Additionally, ALWAYS check:
+
+      - **DRY violations**: Is there duplicated logic or repeated patterns
+        that should be extracted into a shared function or helper? In a
+        single-file script the bar for extraction is higher than in a
+        library, but three near-identical blocks is still too many.
+
+      - **Comment accuracy**: Are all comments, docstrings, and inline
+        documentation still accurate after the changes? Flag any comment
+        that describes behavior that no longer matches the code. This is
+        especially important for module-level docstrings that describe
+        what files the script reads/writes — those drift silently when
+        the file paths change.
+
+      Output: PASS if the file is consistent with these conventions and no
+      DRY or comment-accuracy issues are found. Otherwise FAIL with a
+      bulleted list of specific issues, each tied to a line number.
+
+suggest_new_reviews:
+  description: "Analyze all changes and suggest new review rules that would catch issues going forward."
+  match:
+    include:
+      - "**/*"
+    exclude:
+      - ".github/**"
+      - ".deepwork/tmp/**"
+  review:
+    strategy: matches_together
+    instructions: |
+      Analyze the changeset to determine whether any new DeepWork review rules
+      should be added.
+
+      1. Call get_configured_reviews to see all currently configured review
+         rules. Also call get_named_schemas to see existing DeepSchemas.
+         Understand what's already covered.
+      2. For each change, consider:
+         - Did this change introduce a type of issue a review rule could catch?
+         - Is there a pattern likely to recur?
+         - Would an existing rule benefit from a small scope expansion (e.g.
+           adding a glob to an existing include list)?
+      3. Be extremely conservative. Only suggest rules that are:
+         - Extremely narrow (targets 1 specific file or small bounded set), OR
+         - A slight addition to an existing rule (no new agent spawned), OR
+         - Catches an issue likely to recur and worth the ongoing cost
+      4. Write new rules directly to the appropriate `.deepreview` file. If a
+         rule needs a dedicated instruction file, create it in
+         `.deepwork/review/`.
+      5. If no rules are warranted, say so. An empty suggestion list is valid.
+         Do not invent rules just to have output.
