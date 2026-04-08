@@ -24,7 +24,7 @@ name: DeepWork Review
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize]
 
 concurrency:
   group: deepwork-review-${{ github.event.pull_request.number }}
