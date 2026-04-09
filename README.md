@@ -61,7 +61,7 @@ No self-trigger guard is needed: commits pushed by the action via `GITHUB_TOKEN`
 | `anthropic_api_key` | ✅ | — | Anthropic API key for Claude Code |
 | `github_token` | ✅ | — | GitHub token with `contents: write` and `pull-requests: write` |
 | `model` | ❌ | `claude-opus-4-6` | Claude model to use |
-| `max_turns` | ❌ | `50` | Maximum agentic turns for Claude Code |
+| `max_turns` | ❌ | `100` | Maximum agentic turns for Claude Code |
 | `commit_message` | ❌ | `chore: apply DeepWork review suggestions` | Commit message for auto-committed changes |
 
 ## What Gets Changed

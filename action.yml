@@ -18,9 +18,9 @@ inputs:
     required: false
     default: 'claude-opus-4-6'
   max_turns:
-    description: 'Maximum number of agentic turns for Claude Code'
+    description: 'Maximum number of agentic turns for Claude Code. DeepWork /review dispatches parallel sub-agents per rule so each reviewer eats a turn budget; 100 is comfortable for repos with a handful of rules, raise for larger rule suites.'
     required: false
-    default: '50'
+    default: '100'
   commit_message:
     description: 'Commit message for auto-committed review changes'
     required: false
@@ -69,3 +69,4 @@ runs:
         claude_args: |
           --model ${{ inputs.model }}
           --max-turns ${{ inputs.max_turns }}
+          --dangerously-skip-permissions
