@@ -142,14 +142,15 @@ update_action_surface_docs:
           correctly. If `scripts/` reappears, or a new top-level directory
           is added, this list is incomplete.
 
-      12. The "prompt contract" section enumerates 4 essential guarantees
+      12. The "prompt contract" section enumerates 5 essential guarantees
           about prompts/review.txt. Verify that review.txt still
           (a) starts with `/review`, (b) enforces CI-mode rules including
           never using AskUserQuestion, (c) instructs use of
           `mcp__github_inline_comment__create_inline_comment` with
           `confirmed: true` for per-change comments, (d) tells Claude not
-          to run `git commit`/`git push` directly. If review.txt diverges
-          from any of these, the CLAUDE.md section is wrong.
+          to run git write commands directly, (e) prefers correctness over
+          style when findings conflict. If review.txt diverges from any of
+          these, the CLAUDE.md section is wrong.
     additional_context:
       unchanged_matching_files: true
 
