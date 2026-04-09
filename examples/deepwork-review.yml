@@ -12,21 +12,18 @@ concurrency:
 jobs:
   deepwork-review:
     runs-on: ubuntu-latest
-    # Don't re-run on commits pushed by the action itself
-    if: github.actor != 'deepwork-action[bot]'
     # Required permissions
     permissions:
       contents: write        # push auto-fix commits to the PR branch
-      pull-requests: write   # post inline PR review comments
+      pull-requests: write   # post inline PR review comments and progress tracker
+      id-token: write        # OIDC for anthropics/claude-code-action
 
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          # Fetch full history so DeepWork can diff against the base branch
-          # Set too `100` or something high but safe if you have a huge git history
-          fetch-depth: 0
-          # Use the merge ref so we operate on the PR's head commit
+          # claude-code-action handles PR diffing itself; shallow checkout is fine.
+          fetch-depth: 1
           ref: ${{ github.event.pull_request.head.ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
 

@@ -18,9 +18,9 @@ inputs:
     required: false
     default: 'claude-opus-4-6'
   max_turns:
-    description: 'Maximum number of agentic turns for Claude Code'
+    description: 'Maximum number of agentic turns for Claude Code. DeepWork /review dispatches parallel sub-agents per rule so each reviewer eats a turn budget; 100 is comfortable for repos with a handful of rules, raise for larger rule suites.'
     required: false
-    default: '50'
+    default: '100'
   commit_message:
     description: 'Commit message for auto-committed review changes'
     required: false
@@ -29,11 +29,6 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Install uv
-      uses: astral-sh/setup-uv@v5
-      with:
-        version: 'latest'
-
     - name: Restore DeepWork review cache
       uses: actions/cache@v4
       with:
@@ -45,70 +40,33 @@ runs:
         restore-keys: |
           deepwork-review-pr-${{ github.event.pull_request.number }}-
 
-    - name: Fetch base branch for git diff
+    - name: Load review prompt
+      id: load_prompt
       shell: bash
       run: |
-        BASE_REF="${{ github.event.pull_request.base.ref }}"
-        if [ -n "$BASE_REF" ]; then
-          git fetch origin "$BASE_REF" --depth=1 || \
-            echo "Warning: could not fetch base branch '$BASE_REF'; diff detection may be incomplete"
-        fi
+        {
+          echo 'content<<EOF_DEEPWORK_PROMPT'
+          cat "${{ github.action_path }}/prompts/review.txt"
+          echo EOF_DEEPWORK_PROMPT
+        } >> "$GITHUB_OUTPUT"
 
-    - name: Prepare review run
-      shell: bash
-      run: |
-        # Clean up any leftover changes file from a previous run.
-        rm -f /tmp/deepwork_changes.json
-
-    - name: Run DeepWork review with Claude Code
-      uses: anthropics/claude-code-base-action@beta
-      env:
-        GH_TOKEN: ${{ inputs.github_token }}
+    - name: Run DeepWork Review
+      uses: anthropics/claude-code-action@v1
       with:
         anthropic_api_key: ${{ inputs.anthropic_api_key }}
-        prompt_file: ${{ github.action_path }}/prompts/review.txt
+        github_token: ${{ inputs.github_token }}
         plugin_marketplaces: https://github.com/Unsupervisedcom/deepwork.git
         plugins: deepwork@deepwork-plugins
-        claude_args: >-
-          --dangerously-skip-permissions
+        track_progress: true
+        use_commit_signing: false
+        bot_name: 'deepwork-action[bot]'
+        prompt: |
+          REPO: ${{ github.repository }}
+          PR NUMBER: ${{ github.event.pull_request.number }}
+          COMMIT MESSAGE FOR AUTO-FIXES: ${{ inputs.commit_message }}
+
+          ${{ steps.load_prompt.outputs.content }}
+        claude_args: |
           --model ${{ inputs.model }}
           --max-turns ${{ inputs.max_turns }}
-
-    - name: Commit and push changes
-      id: commit
-      shell: bash
-      env:
-        GITHUB_TOKEN: ${{ inputs.github_token }}
-      run: |
-        git config user.name "deepwork-action[bot]"
-        git config user.email "deepwork-action[bot]@users.noreply.github.com"
-
-        # Check for any modified, added, or deleted tracked files
-        if git diff --quiet && git diff --cached --quiet \
-            && [ -z "$(git ls-files --others --exclude-standard)" ]; then
-          echo "No changes to commit."
-          echo "changes_made=false" >> "$GITHUB_OUTPUT"
-          exit 0
-        fi
-
-        echo "changes_made=true" >> "$GITHUB_OUTPUT"
-
-        git add -A
-        git commit -m "${{ inputs.commit_message }}"
-
-        # Authenticate push via the provided token.
-        REPO="${{ github.repository }}"
-        git remote set-url origin \
-          "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git"
-        git push
-
-    - name: Post inline PR review comments
-      if: steps.commit.outputs.changes_made == 'true' && github.event.pull_request.number != ''
-      shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.github_token }}
-        PR_NUMBER: ${{ github.event.pull_request.number }}
-        GITHUB_REPOSITORY: ${{ github.repository }}
-        GITHUB_BASE_REF: ${{ github.event.pull_request.base.ref }}
-      run: |
-        python3 "${{ github.action_path }}/scripts/post-review-comments.py"
+          --dangerously-skip-permissions
