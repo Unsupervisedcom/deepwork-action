@@ -62,7 +62,9 @@ If you change the prompt, update the drift checks in `.deepreview`'s `update_act
 
 ### DeepWork plugin MCP server fails to start inside `claude-code-action`
 
-When `anthropics/claude-code-action@v1` installs the DeepWork plugin in the runner, the plugin install reports success (`✓ Successfully installed: deepwork@deepwork-plugins`) **but the plugin's MCP server fails to connect**. The Claude Code session init reports:
+**Status: BLOCKING. The action is in WIP / draft state pending upstream fixes.** Reviews still produce useful autofixes via the slash-command path, but the MCP-backed quality gates, DeepSchema validation, and workflow orchestration are all unavailable in CI. Until upstream fixes land in `anthropics/claude-code-action`, this repo's PR is parked as draft.
+
+**Symptom.** When `anthropics/claude-code-action@v1` installs the DeepWork plugin in the runner, the plugin install reports success (`✓ Successfully installed: deepwork@deepwork-plugins (scope: user)`) **but the plugin's MCP server reports `status: failed` in the Claude Code session init payload**:
 
 ```json
 "mcp_servers": [
@@ -72,15 +74,32 @@ When `anthropics/claude-code-action@v1` installs the DeepWork plugin in the runn
 ]
 ```
 
-There is no error message printed near the failure — silent. The plugin's slash commands DO work because `/review` is implemented as a skill file (prompt-style, no MCP needed), so reviews still run, BUT the MCP-provided tools (`get_configured_reviews`, `get_named_schemas`, `start_workflow`, `mark_review_as_passed`, the DeepSchema validation tools, the workflow orchestration tools) are all unavailable in CI. The reviews running today are a **degraded form**: file-edit-based, no quality gates, no DeepSchema validation, no workflow state machine. They produce useful autofixes but skip the structural integrity guarantees the full DeepWork pipeline provides.
+Silent failure — no stack trace, no `command not found`, no `could not start`. The two GitHub MCPs that `claude-code-action` ships natively connect fine; only the plugin's MCP fails. The same plugin works fine outside CI.
 
-The same plugin works fine outside CI. Leading hypotheses (under investigation):
+**Why slash commands still work.** `/review` is implemented as a skill file (prompt-style, no MCP needed), so the review *runs* and produces autofix file edits. What's missing in CI is everything that depends on actual MCP tool calls: `mcp__plugin_deepwork_deepwork__get_configured_reviews`, `get_named_schemas`, `start_workflow`, `mark_review_as_passed`, `register_session_job`, the DeepSchema validation tools, the workflow state machine. The CI reviews are a **degraded form**: file-edit-based, no quality gates, no DeepSchema validation, no per-step quality reviewers.
 
-1. `claude-code-action`'s `pull_request` security path restores `.claude/`, `.mcp.json`, `.claude.json`, `CLAUDE.md`, etc. from `origin/main` before running Claude — this could be wiping plugin MCP registration that the install step put down.
-2. `MCP_TIMEOUT` and `MCP_TOOL_TIMEOUT` env vars are set to empty strings in the runner env — empty values may be interpreted as zero rather than "use default".
-3. The plugin's MCP server has a startup dependency (network, filesystem path, env var) that exists in interactive use but not in the runner sandbox.
+**Root-cause hypotheses (ranked by probability, from research):**
 
-If you can fix this upstream in DeepWork or in `claude-code-action`, do — it's the biggest functional gap in the action right now. Until then, the degraded MCP-less review still produces useful output and the tracking comment makes it visible.
+1. **70% — PR file restoration wipes plugin MCP registration.** `claude-code-action`'s `pull_request` security path restores `.claude/`, `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`, `CLAUDE.md`, `CLAUDE.local.md`, `.husky` from `origin/main` before Claude initializes. The plugin install step runs *first* and writes its MCP registry entry to `~/.claude/.mcp.json` (or similar); the restoration step then erases that registry. The init payload reports `status: failed` because the entry is gone, not because the MCP itself crashed. Silent because there's no entry to report an error against.
+2. **60% — No automatic plugin → session MCP merge path.** Plugin packages are installed but their MCP server definitions aren't automatically merged into the MCP config the Claude CLI subprocess reads. The two `github_*` MCPs work because they're built into `claude-code-action` and explicitly wired up; third-party plugin MCPs have no documented integration path in CI. ([anthropics/claude-code-action#95](https://github.com/anthropics/claude-code-action/issues/95))
+3. **30% — `MCP_TIMEOUT`/`MCP_TOOL_TIMEOUT` empty env vars.** The runner env sets both to empty strings rather than to a numeric value or leaving them unset. Empty might be interpreted as `0` (instant timeout) rather than "use default".
+
+**Open upstream issues that match our exact symptoms:**
+
+- [anthropics/claude-code-action#813 — "Connection to MCPs fails without any logs"](https://github.com/anthropics/claude-code-action/issues/813) — silent MCP failures with zero error output even in debug mode. Same symptom.
+- [anthropics/claude-code-action#1004 — "--mcp-config file path in claude_args is silently dropped when action's inline JSON config is present"](https://github.com/anthropics/claude-code-action/issues/1004) — confirms the action has bugs that silently discard MCP config under specific conditions.
+- [anthropics/claude-code-action#95 — "Add mcp_config input that merges with existing mcp server"](https://github.com/anthropics/claude-code-action/issues/95) — feature request acknowledging there's no automated mechanism to merge plugin MCPs into the session config.
+
+**Definitive diagnostic experiment** (not yet run): in a debug PR, add a composite step *between* the plugin install and the `claude-code-action` invocation that dumps `~/.claude/.mcp.json`. Then, modify the action invocation (or wrap it) so a second dump fires immediately *after* `claude-code-action`'s file-restoration step but *before* Claude initializes. If the two JSONs differ — plugin entry present in dump 1, absent in dump 2 — file restoration is confirmed as the culprit. (Doing this from outside `claude-code-action` is awkward because the file restoration happens inside the action. May need a fork of the action or an `actions/cache@v4`-style trick to capture state between sub-steps.)
+
+**Speculative pre-positioned fix in this repo: `.claude/settings.json`.** Committed as part of the rule-5 reversal commit, with `enabledPlugins.deepwork@deepwork-plugins: true`. The theory: if the plugin is installed at user scope but not enabled at the project level, Claude won't load its MCP for the session. With the settings file present, Claude *should* try to start the MCP. **However**: this fix can only take effect on PRs opened AFTER the file lands on `main`, because the PR-restoration step on the current PR will pull `.claude/` from `origin/main` (which doesn't yet have the file). On the in-flight PR the speculative fix is wiped before Claude sees it.
+
+**Until upstream fixes land**, the action is unusable for its intended purpose (full DeepWork review with quality gates). Either:
+- Wait for fixes to one of #813 / #1004 / #95 in `anthropics/claude-code-action`, AND/OR
+- File a follow-up issue against the DeepWork plugin describing the CI install pattern that fails, AND/OR
+- Implement the diagnostic experiment above and use the result to drive an upstream PR.
+
+Don't merge this PR until at least the basic MCP-loads-in-CI path works end-to-end. The PR has been put back into draft state pending that fix.
 
 ### `pull_request` file restoration
 
