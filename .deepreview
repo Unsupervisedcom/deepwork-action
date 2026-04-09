@@ -53,7 +53,7 @@ update_action_surface_docs:
     include:
       - "action.yml"
       - "prompts/review.txt"
-      - ".github/workflows/example.yml"
+      - "examples/deepwork-review.yml"
       - "README.md"
       - "CLAUDE.md"
   review:
@@ -85,7 +85,7 @@ update_action_surface_docs:
          `bot_name`, `claude_args`), this list is wrong.
 
       3. The "Usage" section's example workflow — must stay aligned with
-         .github/workflows/example.yml. The concurrency group, the
+         examples/deepwork-review.yml. The concurrency group, the
          permissions block (including `id-token: write`), the checkout
          config, and the action invocation must all match. If example.yml
          is updated, README's snippet must be updated to match (or vice
@@ -136,7 +136,7 @@ update_action_surface_docs:
 
       11. The "Repository layout" bullet list must reflect the actual
           top-level files and directories. Verify that action.yml,
-          prompts/review.txt, .github/workflows/example.yml, .deepwork/
+          prompts/review.txt, examples/deepwork-review.yml, .deepwork/
           (and in particular .deepwork/review/ but NOT .deepwork/tmp/),
           and .deepreview are all still present and still described
           correctly. If `scripts/` reappears, or a new top-level directory

@@ -10,7 +10,8 @@ A **composite GitHub Action** (not a JS/TS/Docker action) that delegates most of
 
 - `action.yml` — the composite action definition. Three composite steps: cache restore, load the prompt file into a step output, invoke `anthropics/claude-code-action@v1`.
 - `prompts/review.txt` — the prompt fed to Claude. Starts with `/review` to trigger the DeepWork plugin's review skill, then enforces CI-mode rules (no `AskUserQuestion`, apply every finding, iterate until clean, post inline comments via `mcp__github_inline_comment__create_inline_comment`).
-- `.github/workflows/example.yml` — reference workflow showing how downstream repos consume this action. Not a CI workflow for *this* repo.
+- `examples/deepwork-review.yml` — reference workflow showing how downstream repos consume this action (pins `Unsupervisedcom/deepwork-action@v1`). Lives outside `.github/workflows/` so GitHub doesn't auto-execute it — it's documentation, not CI.
+- `.github/workflows/self-review.yml` — this repo's own CI. Runs the action against its own PRs using `uses: ./` so the PR branch's `action.yml` is exercised (not the published `v1` tag). Without this split, a PR that edits `action.yml` could never test the edit before it gets tagged.
 - `.deepwork/` — DeepWork plugin's local state. Only `.deepwork/review/` is source; `.deepwork/tmp/` is the cache directory (gitignored) restored from GitHub Actions cache at runtime.
 - `.deepreview` — this repo's own review rules, so the action dogfoods itself.
 
@@ -73,4 +74,6 @@ Release automation is planned. Until it lands, the `v1` tag is moved manually on
 
 ## Testing changes
 
-There is no local test harness. To validate changes end-to-end you must push a branch and open a PR in a repo that consumes this action (pinning to your branch via `Unsupervisedcom/deepwork-action@<branch>`). This repo dogfoods itself via `.github/workflows/example.yml`, so any PR opened against this repo also exercises the action on its own changes.
+There is no local test harness. This repo dogfoods itself via `.github/workflows/self-review.yml`, which runs the action against its own PRs using `uses: ./` so edits to `action.yml` are exercised from the PR branch (not the published `v1` tag). Any PR opened against this repo also runs the action on its own changes.
+
+To validate changes from an *external* consumer's perspective (i.e., the `uses: Unsupervisedcom/deepwork-action@...` path), push a branch and open a PR in a downstream repo pinning to your branch via `Unsupervisedcom/deepwork-action@<branch>`.

@@ -1,0 +1,36 @@
+name: DeepWork Self-Review
+
+# This repo dogfoods its own action on every PR. Unlike examples/deepwork-review.yml
+# (the copy-pasteable reference for consumers, which pins @v1), this workflow uses
+# `uses: ./` so it exercises the action.yml from the PR branch itself — otherwise
+# PRs could never test changes to the action before they are tagged as v1.x.y.
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+concurrency:
+  group: deepwork-self-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  deepwork-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # push auto-fix commits to the PR branch
+      pull-requests: write   # post inline PR review comments and progress tracker
+      id-token: write        # OIDC for anthropics/claude-code-action
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run DeepWork Review (from PR branch)
+        uses: ./
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}

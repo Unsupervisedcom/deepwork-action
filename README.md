@@ -16,7 +16,7 @@ A prebuilt GitHub Action that runs [Claude Code](https://docs.anthropic.com/en/d
 
 ## Usage
 
-Create a workflow file such as `.github/workflows/deepwork-review.yml`:
+Create a workflow file such as `.github/workflows/deepwork-review.yml` (a copy of [`examples/deepwork-review.yml`](examples/deepwork-review.yml) in this repo):
 
 ```yaml
 name: DeepWork Review
