@@ -1,8 +1,10 @@
 # Python Conventions
 
-Conventions for Python code in this repository, observed from
-`scripts/post-review-comments.py`. Keep this short and actionable — it's
-a reference for reviewers, not an exhaustive style guide.
+Conventions for Python code in this repository. Keep this short and
+actionable — it's a reference for reviewers, not an exhaustive style
+guide. (Originally derived from `scripts/post-review-comments.py`, which
+has since been deleted. The conventions remain valid for any future Python
+files added to the repo.)
 
 ## Module structure
 
@@ -32,10 +34,8 @@ a reference for reviewers, not an exhaustive style guide.
 
 ## Functions and structure
 
-- Prefer small, named top-level functions over inline blocks. The current
-  script puts each step (`run`, `get_head_sha`, `get_diff`, `first_changed_line`,
-  `count_added_lines`, `load_changes_by_file`, `build_comment_body`, `main`)
-  in its own function.
+- Prefer small, named top-level functions over inline blocks. Each
+  logical step should be its own function.
 - Keep `main()` as the orchestration entry point. Wire it via
   `if __name__ == "__main__": main()`.
 - Don't introduce dataclasses or classes unless there's actual state to
@@ -48,10 +48,9 @@ a reference for reviewers, not an exhaustive style guide.
 - Read paths via `pathlib.Path`, not `open(string)`.
 - Read environment variables with `os.environ.get("NAME", default)` — never
   raw `os.environ["NAME"]` for inputs that might be missing.
-- For non-fatal failures (e.g., the GitHub API call in
-  `post-review-comments.py`), print a warning to `sys.stderr` and
-  `sys.exit(0)` so the calling step doesn't fail. Hard-fail with `sys.exit(1)`
-  only for actual broken state.
+- For non-fatal failures, print a warning to `sys.stderr` and
+  `sys.exit(0)` so the calling CI step doesn't fail. Hard-fail with
+  `sys.exit(1)` only for actual broken state.
 
 ## Strings and formatting
 
@@ -61,19 +60,15 @@ a reference for reviewers, not an exhaustive style guide.
 ## Error handling
 
 - Catch specific exception classes, not bare `except:` or `except Exception:`.
-  Existing code uses `except (json.JSONDecodeError, OSError) as exc:` — keep
-  exception lists narrow.
+  Keep exception lists narrow (e.g., `except (json.JSONDecodeError, OSError) as exc:`).
 - Print warnings with the exception value: `print(f"Warning: ... {exc}",
   file=sys.stderr)`.
 
 ## Comments and docstrings
 
 - Function docstrings are triple-quoted, one-line summaries unless the
-  function does something subtle (e.g., the diff hunk parser in
-  `first_changed_line` has a multi-line docstring explaining the format
-  it parses).
-- Inline comments explain *why*, not *what*. The current script has very
-  few inline comments — that's correct; the function names carry the
-  meaning.
+  function does something subtle that justifies a multi-line docstring.
+- Inline comments explain *why*, not *what*. Let function names carry the
+  meaning; keep inline comments sparse.
 - Section banners (`# ----` blocks) are the exception: they're structural,
   not explanatory.

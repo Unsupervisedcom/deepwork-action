@@ -25,7 +25,7 @@ The action is now thin. In order, `action.yml` runs:
    - `plugin_marketplaces: https://github.com/Unsupervisedcom/deepwork.git`
    - `plugins: deepwork@deepwork-plugins`
    - `prompt:` the review.txt content plus a header with the repo and PR number
-   - `claude_args: --model <model> --max-turns <n>`
+   - `claude_args: --model <model> --max-turns <n> --dangerously-skip-permissions`
    - `track_progress: true` → live "Claude Code is reviewing..." comment on the PR
    - `use_commit_signing: false` → Claude uses plain `git commit` / `git push` for auto-fixes
    - `bot_name: 'deepwork-action[bot]'`
@@ -51,9 +51,10 @@ If you ever switch the push path to use a Personal Access Token or a GitHub App 
 `prompts/review.txt` is the production prompt that ships to Claude in CI. Treat it as a critical file — review it strictly whenever it changes. Its essential guarantees:
 
 1. Claude runs `/review` (the DeepWork plugin's skill, not Claude Code's built-in).
-2. CI mode rules: never `AskUserQuestion`, apply every finding autonomously, iterate until clean, emit "No review rules configured." and stop if no `.deepreview` rules exist.
+2. CI mode rules: never `AskUserQuestion`, apply every finding autonomously (with a false-positive escape valve), iterate until clean or 2 cycles, emit "No review rules configured." and stop if no `.deepreview` rules exist.
 3. For each substantive change, post an inline PR comment via `mcp__github_inline_comment__create_inline_comment` with `confirmed: true`, anchored to the changed line, describing what and why.
-4. Do not run `git commit` / `git push` — the upstream action handles it.
+4. Never run git write commands (`git commit`, `git push`, `git add`, etc.) — the upstream action handles all VCS operations.
+5. When findings conflict, prefer correctness over style.
 
 If you change the prompt, update the drift checks in `.deepreview`'s `update_action_surface_docs` rule and this CLAUDE.md section to match.
 

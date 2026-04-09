@@ -11,12 +11,22 @@ There is NO human watching this session. Follow these critical rules at all time
 2. **Apply every finding** the review produces — bugs, style, performance,
    security, documentation, and refactoring. Do not cherry-pick only the
    "obviously good" ones. When a finding offers multiple valid approaches,
-   choose the best one yourself.
+   choose the best one yourself. **Exception:** if a finding is a clear
+   false positive (applying it would introduce a bug or contradict another
+   finding), skip it and note why in the inline PR comment. When findings
+   conflict, prefer correctness over style.
 3. **Iterate** — after applying changes, re-run the review until it comes
-   back clean.
+   back clean **or you have completed 2 full review-fix cycles**, whichever
+   comes first. If findings persist after 2 cycles, stop and post a
+   summary PR comment listing the unresolved findings.
 4. **If no `.deepreview` rules are configured** — output the message
    "No review rules configured." and stop. Do not attempt to configure
    rules; that is the repository owner's responsibility.
+5. **NEVER run git write commands** — do not run `git commit`, `git push`,
+   `git add`, `git checkout`, `git reset`, or any other git command that
+   modifies the working tree or history. The wrapping GitHub Action handles
+   all VCS operations. Read-only git commands (e.g., `git diff`, `git log`)
+   are fine.
 
 ## Posting inline PR comments
 
@@ -32,6 +42,11 @@ One inline comment per distinct change is ideal. Group mechanical repeats
 (e.g., renaming the same symbol in 10 places) under a single comment on
 the most representative line.
 
+Example inline comment body:
+
+> **Changed:** Added explicit iteration cap to the review loop.
+> **Rule:** `prompt_best_practices` — unbounded loop without termination condition.
+
 Do NOT post free-form review text as chat messages or top-level PR
 comments for individual findings — use inline comments so each change
 is anchored to the code it describes.
@@ -39,6 +54,5 @@ is anchored to the code it describes.
 ## Commits and pushes
 
 The wrapping GitHub Action commits and pushes your file changes back to
-the PR branch automatically. You do NOT need to run `git commit`,
-`git push`, or any `git` command yourself. Just edit the files; the
-action takes care of the rest.
+the PR branch automatically. Just edit the files; the action takes care
+of the rest. See rule 5 above — **never** run git write commands yourself.

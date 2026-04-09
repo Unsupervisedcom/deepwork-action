@@ -45,7 +45,7 @@ prompt_best_practices:
       Note: prompts/review.txt is the production prompt that this action
       ships to Claude Code in CI. It is a CRITICAL file for this repo —
       review it strictly, especially the "Automation Rules" section, the
-      change-tracking JSON contract, and the no-commit/no-push instructions.
+      inline-comment posting instructions, and the no-git-write-commands rule.
 
 update_action_surface_docs:
   description: "Keep README.md and CLAUDE.md in sync with action.yml, the production prompt, and the example workflow."
@@ -222,7 +222,8 @@ suggest_new_reviews:
 
       1. Call get_configured_reviews to see all currently configured review
          rules. Also call get_named_schemas to see existing DeepSchemas.
-         Understand what's already covered.
+         Understand what's already covered. If these tools are not available,
+         read the `.deepreview` file(s) directly instead.
       2. For each change, consider:
          - Did this change introduce a type of issue a review rule could catch?
          - Is there a pattern likely to recur?
