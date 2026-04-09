@@ -48,7 +48,18 @@ If you change the JSON schema in `prompts/review.txt`, you must update `load_cha
 
 ## Versioning the action
 
-This action is consumed via `Unsupervisedcom/deepwork-action@v1`. When making a release, the `v1` tag must be moved to the new commit (standard GitHub Actions major-version-tag convention). The README and example workflow both pin `@v1`.
+This action is consumed via `Unsupervisedcom/deepwork-action@v1`. The `v1` tag is a **floating major-version tag** that always points at the latest commit on `main` — standard GitHub Actions convention (see `actions/checkout@v4`, etc.). Consumers pin `@v1` and expect it to track the freshest `1.x.y` automatically.
+
+**This means every release (and currently every merge to main) requires force-moving `v1`**:
+
+```bash
+git tag -f v1 origin/main
+git push origin v1 --force
+```
+
+The README and example workflow both pin `@v1`, so this is the contract consumers rely on — don't change them to pin a specific `1.x.y` without also updating this section.
+
+Release automation is planned (see the release-automation work that should land after the initial `.deepreview` suite). Until that lands, the `v1` tag is moved manually on every merge to main. If you see `v1` lagging behind `main`, that's a bug — move it.
 
 ## Testing changes
 
