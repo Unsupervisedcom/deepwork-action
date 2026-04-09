@@ -60,13 +60,6 @@ runs:
         track_progress: true
         use_commit_signing: false
         bot_name: 'deepwork-action[bot]'
-        # Debug aids while we iterate on getting inline comments working.
-        # show_full_output exposes Claude SDK tool calls in the runner log
-        # (including secrets — only safe in trusted repos).
-        # classify_inline_comments=false posts every inline comment Claude
-        # creates instead of buffering them and classifying real-vs-probe.
-        show_full_output: true
-        classify_inline_comments: false
         prompt: |
           REPO: ${{ github.repository }}
           PR NUMBER: ${{ github.event.pull_request.number }}

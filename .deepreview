@@ -100,11 +100,13 @@ update_action_surface_docs:
          PR number. If action.yml's cache step changes its path or key
          strategy, this section is wrong.
 
-      6. The "Review Comments" section — describes inline comments posted
-         via the native `mcp__github_inline_comment__create_inline_comment`
-         MCP tool provided by `anthropics/claude-code-action`. If the
-         upstream action changes the tool name or if we switch how comments
-         are posted, this is wrong.
+      6. The "Review Comments" section — describes a SINGLE tracking
+         comment posted via `track_progress: true` (no per-line inline
+         comments — the upstream `claude-code-action@v1` system prompt
+         forbids creating new comments on `pull_request` events). If we
+         ever switch to a different output mechanism, or the upstream
+         action changes its policy and we start posting inline comments
+         again, this section is wrong.
 
       7. The "no self-trigger guard needed" claim — relies on GitHub's
          built-in rule that GITHUB_TOKEN-pushed commits do not retrigger
@@ -145,12 +147,18 @@ update_action_surface_docs:
       12. The "prompt contract" section enumerates 5 essential guarantees
           about prompts/review.txt. Verify that review.txt still
           (a) starts with `/review`, (b) enforces CI-mode rules including
-          never using AskUserQuestion, (c) instructs use of
-          `mcp__github_inline_comment__create_inline_comment` with
-          `confirmed: true` for per-change comments, (d) tells Claude not
-          to run git write commands directly, (e) prefers correctness over
-          style when findings conflict. If review.txt diverges from any of
-          these, the CLAUDE.md section is wrong.
+          never using AskUserQuestion, (c) tells Claude to commit and
+          push its own edits using `git add`, `git commit`, and the
+          upstream action's `git-push.sh` helper script,
+          (d) directs Claude's output to the upstream tracking comment
+          via `mcp__github_comment__update_claude_comment` and forbids
+          creating new PR comments, (e) prefers correctness over style
+          when findings conflict. If review.txt diverges from any of
+          these, the CLAUDE.md section is wrong. Also verify that
+          review.txt does NOT contain any of the now-removed instructions
+          (the old "NEVER run git write commands" rule, or the old
+          `mcp__github_inline_comment__create_inline_comment` posting
+          instructions) — if it does, those are stale leftovers.
     additional_context:
       unchanged_matching_files: true
 

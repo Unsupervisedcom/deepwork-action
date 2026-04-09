@@ -31,9 +31,9 @@ The action is now thin. In order, `action.yml` runs:
    - `bot_name: 'deepwork-action[bot]'`
 
 The upstream `claude-code-action` then:
-- Installs the DeepWork plugin from the marketplace URL.
+- Installs the DeepWork plugin from the marketplace URL (note: the plugin's slash commands install fine but the plugin's MCP server currently fails to connect inside the action's runner — see "Known issues" below).
 - Spawns Claude Code, which runs `/review`, reads `.deepreview` rules, dispatches reviewers in parallel, applies findings as real file edits.
-- Commits and pushes those edits to the PR branch automatically (no custom commit step here).
+- Pre-allows a small set of git tools (`git add`, `git commit`, `git-push.sh`, `git rm`) so Claude can commit and push its own edits. **Claude commits and pushes itself; the action does NOT auto-commit.** This was a footgun in an earlier draft of this repo where `prompts/review.txt` told Claude to never run git commands — Claude obediently made edits and then never saved them. The upstream system prompt expects Claude to commit; our prompt now matches.
 - Posts inline PR comments for each change via the native `mcp__github_inline_comment__create_inline_comment` MCP tool.
 
 ## What used to be here and isn't anymore
@@ -52,11 +52,43 @@ If you ever switch the push path to use a Personal Access Token or a GitHub App 
 
 1. Claude runs `/review` (the DeepWork plugin's skill, not Claude Code's built-in).
 2. CI mode rules: never `AskUserQuestion`, apply every finding autonomously (with a false-positive escape valve), iterate until clean or 2 cycles, emit "No review rules configured." and stop if no `.deepreview` rules exist.
-3. For each substantive change, post an inline PR comment via `mcp__github_inline_comment__create_inline_comment` with `confirmed: true`, anchored to the changed line, describing what and why.
-4. Never run git write commands (`git commit`, `git push`, `git add`, etc.) — the upstream action handles all VCS operations.
+3. **Claude MUST commit and push** its file edits itself, using the pre-allowed `git add`, `git commit`, and `/home/runner/work/_actions/anthropics/claude-code-action/v1/scripts/git-push.sh origin HEAD` commands. The wrapping action does not auto-commit. Each iteration cycle should produce its own commit; never amend or force-push.
+4. The output surface is the **single tracking comment** managed by the upstream `claude-code-action` via `mcp__github_comment__update_claude_comment`. Claude must not create new PR comments or post free-form chat replies. The upstream action's system prompt explicitly forbids `Never create new comments. Only update the existing comment` — our prompt does not fight this.
 5. When findings conflict, prefer correctness over style.
 
 If you change the prompt, update the drift checks in `.deepreview`'s `update_action_surface_docs` rule and this CLAUDE.md section to match.
+
+## Known issues
+
+### DeepWork plugin MCP server fails to start inside `claude-code-action`
+
+When `anthropics/claude-code-action@v1` installs the DeepWork plugin in the runner, the plugin install reports success (`✓ Successfully installed: deepwork@deepwork-plugins`) **but the plugin's MCP server fails to connect**. The Claude Code session init reports:
+
+```json
+"mcp_servers": [
+  { "name": "plugin:deepwork:deepwork", "status": "failed" },
+  { "name": "github_comment",           "status": "connected" },
+  { "name": "github_ci",                "status": "connected" }
+]
+```
+
+There is no error message printed near the failure — silent. The plugin's slash commands DO work because `/review` is implemented as a skill file (prompt-style, no MCP needed), so reviews still run, BUT the MCP-provided tools (`get_configured_reviews`, `get_named_schemas`, `start_workflow`, `mark_review_as_passed`, the DeepSchema validation tools, the workflow orchestration tools) are all unavailable in CI. The reviews running today are a **degraded form**: file-edit-based, no quality gates, no DeepSchema validation, no workflow state machine. They produce useful autofixes but skip the structural integrity guarantees the full DeepWork pipeline provides.
+
+The same plugin works fine outside CI. Leading hypotheses (under investigation):
+
+1. `claude-code-action`'s `pull_request` security path restores `.claude/`, `.mcp.json`, `.claude.json`, `CLAUDE.md`, etc. from `origin/main` before running Claude — this could be wiping plugin MCP registration that the install step put down.
+2. `MCP_TIMEOUT` and `MCP_TOOL_TIMEOUT` env vars are set to empty strings in the runner env — empty values may be interpreted as zero rather than "use default".
+3. The plugin's MCP server has a startup dependency (network, filesystem path, env var) that exists in interactive use but not in the runner sandbox.
+
+If you can fix this upstream in DeepWork or in `claude-code-action`, do — it's the biggest functional gap in the action right now. Until then, the degraded MCP-less review still produces useful output and the tracking comment makes it visible.
+
+### `pull_request` file restoration
+
+Before each run, `claude-code-action` restores these files from `origin/main`: `.claude/`, `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`, `CLAUDE.md`, `CLAUDE.local.md`, `.husky`. This is a security feature against prompt injection from PR content (`PR head is untrusted` per the runner log). Practical consequences:
+
+- A PR that *adds* `CLAUDE.md` will run with no `CLAUDE.md` present in the working tree (because `origin/main` has none). The PR's CLAUDE.md is only visible to Claude via direct file reads, not via the auto-loaded context.
+- Shipping `.mcp.json` in the repo to wire up MCP servers is pointless — it gets overwritten on every run. Use the `mcp_config:` input on `claude-code-action` instead.
+- If you ever add a per-repo Claude Code settings file to this repo's tree, it won't take effect during the action's runs.
 
 ## Versioning the action
 

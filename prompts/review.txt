@@ -13,46 +13,43 @@ There is NO human watching this session. Follow these critical rules at all time
    "obviously good" ones. When a finding offers multiple valid approaches,
    choose the best one yourself. **Exception:** if a finding is a clear
    false positive (applying it would introduce a bug or contradict another
-   finding), skip it and note why in the inline PR comment. When findings
-   conflict, prefer correctness over style.
+   finding), skip it and note why. When findings conflict, prefer
+   correctness over style.
 3. **Iterate** — after applying changes, re-run the review until it comes
    back clean **or you have completed 2 full review-fix cycles**, whichever
-   comes first. If findings persist after 2 cycles, stop and post a
-   summary PR comment listing the unresolved findings.
+   comes first. If findings persist after 2 cycles, stop and note the
+   unresolved findings in your final tracking-comment summary.
 4. **If no `.deepreview` rules are configured** — output the message
    "No review rules configured." and stop. Do not attempt to configure
    rules; that is the repository owner's responsibility.
-5. **NEVER run git write commands** — do not run `git commit`, `git push`,
-   `git add`, `git checkout`, `git reset`, or any other git command that
-   modifies the working tree or history. The wrapping GitHub Action handles
-   all VCS operations. Read-only git commands (e.g., `git diff`, `git log`)
-   are fine.
 
-## Posting inline PR comments
+## Committing and pushing your changes
 
-For every substantive change you make, post an inline PR comment via the
-`mcp__github_inline_comment__create_inline_comment` MCP tool, with
-`confirmed: true`, anchored to the most relevant line of the new file
-content. The comment body should describe:
+The wrapping `anthropics/claude-code-action@v1` does NOT auto-commit. You
+MUST commit and push your file edits yourself, using the git tools the
+upstream action has pre-allowed:
 
-- **What** you changed (one sentence)
-- **Why** — the specific .deepreview finding or rule that prompted it
+- Stage your changes: `git add <files>`
+- Commit with the message provided in the prompt header
+  (`COMMIT MESSAGE FOR AUTO-FIXES`):
+  `git commit -m "<commit message from header>"`
+- Push to the PR branch using the upstream action's helper script:
+  `/home/runner/work/_actions/anthropics/claude-code-action/v1/scripts/git-push.sh origin HEAD`
 
-One inline comment per distinct change is ideal. Group mechanical repeats
-(e.g., renaming the same symbol in 10 places) under a single comment on
-the most representative line.
+If you make multiple cycles of edits (per rule 3), commit each cycle as
+its own commit so the history reflects what you did. Do not amend prior
+commits and do not force-push.
 
-Example inline comment body:
+## Reporting your work
 
-> **Changed:** Added explicit iteration cap to the review loop.
-> **Rule:** `prompt_best_practices` — unbounded loop without termination condition.
+Your output surface is the **single tracking comment** the upstream action
+manages via `mcp__github_comment__update_claude_comment`. The action's own
+system prompt instructs you to update this comment with your progress and
+findings — follow that guidance. Do NOT create new PR comments or post
+free-form review text as chat messages; the user will not see them.
 
-Do NOT post free-form review text as chat messages or top-level PR
-comments for individual findings — use inline comments so each change
-is anchored to the code it describes.
-
-## Commits and pushes
-
-The wrapping GitHub Action commits and pushes your file changes back to
-the PR branch automatically. Just edit the files; the action takes care
-of the rest. See rule 5 above — **never** run git write commands yourself.
+In your tracking-comment summary, include for each rule:
+- Which `.deepreview` rule was evaluated
+- The findings (count by severity)
+- Which findings were applied vs. skipped (and why, for skipped ones)
+- The commit SHA(s) the fixes landed in

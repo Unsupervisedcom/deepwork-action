@@ -6,8 +6,8 @@ A prebuilt GitHub Action that runs [Claude Code](https://docs.anthropic.com/en/d
 
 1. **Cache restore** — Restores the DeepWork plugin's per-PR review state from GitHub Actions cache so already-passed reviews are not re-run on subsequent commits.
 2. **DeepWork review via Claude Code Action** — Invokes [`anthropics/claude-code-action@v1`](https://github.com/anthropics/claude-code-action) with `plugins: deepwork@deepwork-plugins` and `plugin_marketplaces: https://github.com/Unsupervisedcom/deepwork.git`, then runs the `/review` skill against the PR. The skill reads your `.deepreview` config files, dispatches parallel review agents scoped to exactly the right files, and applies every finding.
-3. **Auto-commit** — `claude-code-action` commits Claude's file changes back to the PR branch automatically under the `deepwork-action[bot]` identity.
-4. **Inline PR comments** — Claude posts one inline PR comment per substantive change via the native `mcp__github_inline_comment__create_inline_comment` tool. A live progress comment (`track_progress: true`) tracks the review as it runs.
+3. **Commit & push** — Claude commits and pushes its file edits to the PR branch using the git tools the upstream action pre-allows. Commits are authored as `deepwork-action[bot]`.
+4. **Tracking comment** — `track_progress: true` produces a single live progress comment on the PR with checklisted phases (gather → review → apply → re-run → summary) and a per-rule findings summary including the commit SHAs the fixes landed in. This is the action's only output surface — there are no per-line inline comments (the upstream `claude-code-action@v1` system prompt explicitly forbids creating new comments on `pull_request` events; everything goes through the tracking comment).
 
 ## Prerequisites
 
@@ -79,7 +79,9 @@ If no `.deepreview` rules are configured in the repository, the action exits cle
 
 ## Review Comments
 
-Each substantive change Claude makes is explained by an inline PR comment anchored to the changed line, posted via the native GitHub inline-comment MCP tool provided by `anthropics/claude-code-action`. Comments appear in the **Files Changed** tab so your team can accept, request modifications, or revert individual changes as needed.
+The action posts a **single live tracking comment** on the PR (via `track_progress: true`) showing the review's progress through each phase and a structured per-rule findings summary at the end. The summary lists which findings were applied vs. skipped, with the commit SHAs the fixes landed in, so your team can review the resulting commits in the **Files Changed** tab and accept, request modifications, or revert individual changes as needed.
+
+There are no per-line inline review comments. The upstream `anthropics/claude-code-action@v1` system prompt explicitly forbids creating new comments on `pull_request` events for safety; all output flows through the tracking comment instead.
 
 ## Caching
 
