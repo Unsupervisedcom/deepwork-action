@@ -4,47 +4,57 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-A **composite GitHub Action** (not a JS/TS/Docker action) that runs Claude Code with the DeepWork plugin against a Pull Request, applies every review suggestion as code changes, auto-commits them to the PR branch, and posts inline PR review comments. There is no build system, no package manager, no test suite — the entire action is defined in `action.yml`, one prompt file, and one Python script.
+A **composite GitHub Action** (not a JS/TS/Docker action) that delegates most of the heavy lifting to [`anthropics/claude-code-action@v1`](https://github.com/anthropics/claude-code-action). It installs the DeepWork plugin, runs `/review` against the PR, applies every finding as real file edits, and uses the upstream action's native machinery to auto-commit changes and post inline PR comments. There is no build system, no package manager, no test suite. The action is defined by `action.yml` and a single prompt file.
 
 ## Repository layout
 
-- `action.yml` — the composite action definition. All orchestration lives here.
-- `prompts/review.txt` — the prompt fed to Claude Code via `claude-code-base-action`. Starts with `/review` to trigger the DeepWork plugin's review skill, then enforces CI-mode rules (no `AskUserQuestion`, apply every finding, write change log to `/tmp/deepwork_changes.json`).
-- `scripts/post-review-comments.py` — runs **after** Claude finishes. Reads `/tmp/deepwork_changes.json`, diffs against the base branch, and POSTs a single PR review with one inline comment per changed file via `gh api`.
+- `action.yml` — the composite action definition. Three composite steps: cache restore, load the prompt file into a step output, invoke `anthropics/claude-code-action@v1`.
+- `prompts/review.txt` — the prompt fed to Claude. Starts with `/review` to trigger the DeepWork plugin's review skill, then enforces CI-mode rules (no `AskUserQuestion`, apply every finding, iterate until clean, post inline comments via `mcp__github_inline_comment__create_inline_comment`).
 - `.github/workflows/example.yml` — reference workflow showing how downstream repos consume this action. Not a CI workflow for *this* repo.
-- `.deepwork/` — DeepWork plugin's local state (`job.schema.json`, `tmp/status`). The `tmp/` subdirectory is what the action caches between runs.
+- `.deepwork/` — DeepWork plugin's local state. Only `.deepwork/review/` is source; `.deepwork/tmp/` is the cache directory (gitignored) restored from GitHub Actions cache at runtime.
+- `.deepreview` — this repo's own review rules, so the action dogfoods itself.
 
-## End-to-end flow (read this before changing anything)
+## End-to-end flow
 
-The action's steps in `action.yml` form a pipeline that hands state between three different processes via well-known files. Breaking any link silently degrades the action — most failures here are silent because the Python step is non-fatal.
+The action is now thin. In order, `action.yml` runs:
 
-1. **Checkout + cache restore** — the consuming workflow checks out the PR head branch with `fetch-depth: 0`. The action restores `.deepwork/tmp` from the GitHub Actions cache, keyed on PR number. This is how already-passed reviews skip re-running on subsequent commits (the major token saver called out in the README).
-2. **Fetch base branch** — `git fetch origin <base_ref> --depth=1` so the diff in step 5 has something to compare against. Failure here is logged but non-fatal.
-3. **Cleanup** — deletes any stale `/tmp/deepwork_changes.json` from a previous run on the same runner.
-4. **Run Claude Code** — invokes `anthropics/claude-code-base-action@beta` with:
-   - `prompt_file: prompts/review.txt`
+1. **Restore DeepWork review cache** via `actions/cache@v4`. Path is `.deepwork/tmp`, keyed on PR number + run id. The DeepWork plugin uses this directory to remember which reviews have already passed on a PR, so subsequent commits skip re-running already-passed checks — the main token-cost saver.
+2. **Load review prompt** into a step output. Reads `prompts/review.txt` via bash heredoc into `${{ steps.load_prompt.outputs.content }}`. This exists because `anthropics/claude-code-action` only has a `prompt` input (no `prompt_file`), so we have to inline the text via an output.
+3. **Run DeepWork Review** — invokes `anthropics/claude-code-action@v1` with:
    - `plugin_marketplaces: https://github.com/Unsupervisedcom/deepwork.git`
    - `plugins: deepwork@deepwork-plugins`
-   - `claude_args: --dangerously-skip-permissions --model <model> --max-turns <n>`
-   Claude is expected to (a) modify files in the working tree and (b) append entries to `/tmp/deepwork_changes.json` describing each change. Claude must **not** commit or push — that's step 5's job.
-5. **Commit & push** — runs as identity `deepwork-action[bot] <deepwork-action[bot]@users.noreply.github.com>`. Detects "no changes" by checking `git diff`, `git diff --cached`, AND untracked files; sets `changes_made` output accordingly. Pushes via a token-rewritten remote URL.
-6. **Post inline review comments** — only runs if `changes_made == 'true'`. Executes `scripts/post-review-comments.py`, which reads `/tmp/deepwork_changes.json`, generates per-file comment bodies (with a diff-stats fallback if a file isn't in the JSON), and POSTs a single review with `event: COMMENT` and one comment per file.
+   - `prompt:` the review.txt content plus a header with the repo and PR number
+   - `claude_args: --model <model> --max-turns <n>`
+   - `track_progress: true` → live "Claude Code is reviewing..." comment on the PR
+   - `use_commit_signing: false` → Claude uses plain `git commit` / `git push` for auto-fixes
+   - `bot_name: 'deepwork-action[bot]'`
+
+The upstream `claude-code-action` then:
+- Installs the DeepWork plugin from the marketplace URL.
+- Spawns Claude Code, which runs `/review`, reads `.deepreview` rules, dispatches reviewers in parallel, applies findings as real file edits.
+- Commits and pushes those edits to the PR branch automatically (no custom commit step here).
+- Posts inline PR comments for each change via the native `mcp__github_inline_comment__create_inline_comment` MCP tool.
+
+## What used to be here and isn't anymore
+
+Before the rewrite to `claude-code-action@v1`, `action.yml` had seven composite steps: install uv, restore cache, fetch base branch, prepare review run (`rm -f /tmp/deepwork_changes.json`), run `claude-code-base-action@beta`, commit & push, and a custom `scripts/post-review-comments.py` that diffed the PR and posted inline comments. The old commit `bc66f07 "proper plugin install"` configured the base action with `plugin_marketplaces`/`plugins`/`claude_args` inputs that never existed on `claude-code-base-action` in any published release — the plugin never actually installed in CI, and Claude was running the built-in `/review` slash command on default Sonnet with default permissions. Switching to `anthropics/claude-code-action@v1` (which has real `plugins`/`plugin_marketplaces`/`claude_args` inputs) let us delete all of that. If you see any stale references to `/tmp/deepwork_changes.json`, the custom commit step, `scripts/post-review-comments.py`, or `claude-code-base-action` in docs or code, they are leftovers — delete them.
 
 ## Self-trigger guard
 
-The example workflow uses `if: github.actor != 'deepwork-action[bot]'` at the **job level** to prevent the auto-fix commit from re-triggering the workflow. This guard is the only thing keeping the action from looping. Any change to the bot identity in step 5 of `action.yml` must be matched in the example workflow's `if` condition and in any documentation that references the actor name.
+There isn't one, and there doesn't need to be. GitHub Actions' built-in rule: **events triggered by the default `GITHUB_TOKEN` do not create new workflow runs.** Since `claude-code-action` pushes auto-fix commits using the `GITHUB_TOKEN` we pass in, those pushes do not re-trigger the `pull_request` workflow. No `if: github.actor != '...'` guard required. The example workflow previously had one, but it was misconfigured (checked for `deepwork-action[bot]` when the actual actor for GITHUB_TOKEN pushes is `github-actions[bot]`) and unnecessary to begin with.
 
-## State files crossing process boundaries
+If you ever switch the push path to use a Personal Access Token or a GitHub App token instead of `GITHUB_TOKEN`, the re-trigger protection disappears and you will need an explicit guard matching whichever bot name those credentials resolve to.
 
-Three pieces of state flow between independent processes — keep them in sync when modifying any one of them:
+## The prompt contract
 
-| File | Written by | Read by | Purpose |
-|---|---|---|---|
-| `/tmp/deepwork_changes.json` | Claude (per `prompts/review.txt`) | `scripts/post-review-comments.py` | Per-change descriptions for inline comments. Schema: `{"changes": [{"file", "line", "description", "reason"}]}`. The Python script is tolerant of missing/malformed entries and falls back to diff stats. |
-| `.deepwork/tmp/` | DeepWork plugin (inside Claude Code) | GitHub Actions cache (next run) | Review pass/fail state per PR — enables incremental review across commits. |
-| `/tmp/deepwork_review_payload.json` | `post-review-comments.py` | `gh api ... --input` | Transient; just the request body for the GitHub PR review API. |
+`prompts/review.txt` is the production prompt that ships to Claude in CI. Treat it as a critical file — review it strictly whenever it changes. Its essential guarantees:
 
-If you change the JSON schema in `prompts/review.txt`, you must update `load_changes_by_file` and `build_comment_body` in `scripts/post-review-comments.py` to match. The prompt is the contract.
+1. Claude runs `/review` (the DeepWork plugin's skill, not Claude Code's built-in).
+2. CI mode rules: never `AskUserQuestion`, apply every finding autonomously, iterate until clean, emit "No review rules configured." and stop if no `.deepreview` rules exist.
+3. For each substantive change, post an inline PR comment via `mcp__github_inline_comment__create_inline_comment` with `confirmed: true`, anchored to the changed line, describing what and why.
+4. Do not run `git commit` / `git push` — the upstream action handles it.
+
+If you change the prompt, update the drift checks in `.deepreview`'s `update_action_surface_docs` rule and this CLAUDE.md section to match.
 
 ## Versioning the action
 
@@ -59,8 +69,8 @@ git push origin v1 --force
 
 The README and example workflow both pin `@v1`, so this is the contract consumers rely on — don't change them to pin a specific `1.x.y` without also updating this section.
 
-Release automation is planned (see the release-automation work that should land after the initial `.deepreview` suite). Until that lands, the `v1` tag is moved manually on every merge to main. If you see `v1` lagging behind `main`, that's a bug — move it.
+Release automation is planned. Until it lands, the `v1` tag is moved manually on every merge to main. If you see `v1` lagging behind `main`, that's a bug — move it.
 
 ## Testing changes
 
-There is no local test harness. To validate changes end-to-end you must push a branch and open a PR in a repo that consumes this action (pinning the action to your branch via `Unsupervisedcom/deepwork-action@<branch>`). The Python script can be smoke-tested locally by setting `PR_NUMBER`, `GITHUB_REPOSITORY`, `GITHUB_BASE_REF` and running it inside a real git checkout, but it will only succeed in posting comments if `gh` is authenticated against a real PR.
+There is no local test harness. To validate changes end-to-end you must push a branch and open a PR in a repo that consumes this action (pinning to your branch via `Unsupervisedcom/deepwork-action@<branch>`). This repo dogfoods itself via `.github/workflows/example.yml`, so any PR opened against this repo also exercises the action on its own changes.

@@ -48,12 +48,11 @@ prompt_best_practices:
       change-tracking JSON contract, and the no-commit/no-push instructions.
 
 update_action_surface_docs:
-  description: "Keep README.md and CLAUDE.md in sync with action.yml, the production prompt, the comment-posting script, and the example workflow."
+  description: "Keep README.md and CLAUDE.md in sync with action.yml, the production prompt, and the example workflow."
   match:
     include:
       - "action.yml"
       - "prompts/review.txt"
-      - "scripts/post-review-comments.py"
       - ".github/workflows/example.yml"
       - "README.md"
       - "CLAUDE.md"
@@ -77,63 +76,80 @@ update_action_surface_docs:
          commit_message. If action.yml adds, removes, or renames an input,
          the table is wrong.
 
-      2. The "How It Works" 5-step list — must mirror action.yml's composite
-         steps in order (cache restore, fetch base, run
-         claude-code-base-action, commit & push, post inline review comments).
+      2. The "How It Works" numbered list — must mirror action.yml's
+         actual behavior. action.yml currently delegates the review,
+         auto-commit, and inline-comment posting to
+         `anthropics/claude-code-action@v1`; if that underlying action is
+         swapped out or its inputs change (`plugins`,
+         `plugin_marketplaces`, `track_progress`, `use_commit_signing`,
+         `bot_name`, `claude_args`), this list is wrong.
 
       3. The "Usage" section's example workflow — must stay aligned with
          .github/workflows/example.yml. The concurrency group, the
-         `if: github.actor != 'deepwork-action[bot]'` self-trigger guard,
-         the permissions block, the checkout config, and the action
-         invocation must all match. If example.yml is updated, README's
-         snippet must be updated to match (or vice versa).
+         permissions block (including `id-token: write`), the checkout
+         config, and the action invocation must all match. If example.yml
+         is updated, README's snippet must be updated to match (or vice
+         versa).
 
       4. The "Security" section — claims about which underlying action is
-         used (`anthropics/claude-code-base-action`), the
-         `--dangerously-skip-permissions` flag, and the `deepwork-action[bot]`
-         identity. These must match the current action.yml.
+         used (`anthropics/claude-code-action@v1`) and the
+         `deepwork-action[bot]` identity. These must match the current
+         action.yml's `uses:` line and `bot_name:` input.
 
       5. The "Caching" section — claims caching of `.deepwork/tmp` keyed on
          PR number. If action.yml's cache step changes its path or key
          strategy, this section is wrong.
 
-      6. The "Review Comments" section — describes one inline comment per
-         changed file in the Files Changed tab. If
-         scripts/post-review-comments.py changes its comment grouping
-         strategy, this is wrong.
+      6. The "Review Comments" section — describes inline comments posted
+         via the native `mcp__github_inline_comment__create_inline_comment`
+         MCP tool provided by `anthropics/claude-code-action`. If the
+         upstream action changes the tool name or if we switch how comments
+         are posted, this is wrong.
 
-      7. The auto-commit guarantees — README claims Claude does NOT
-         commit/push and that the workflow handles it. This is enforced by
-         prompts/review.txt's "Important" section. If review.txt's contract
-         changes, the README description may need to change too.
+      7. The "no self-trigger guard needed" claim — relies on GitHub's
+         built-in rule that GITHUB_TOKEN-pushed commits do not retrigger
+         workflows. If action.yml starts pushing via a PAT or GitHub App
+         token instead, the README claim becomes false and the example
+         workflow will need a guard added back.
 
       ## High-risk drift points in CLAUDE.md
 
-      8. The "End-to-end flow" numbered list (steps 1-6) must mirror
-         action.yml's composite step list in order. CLAUDE.md names specific
-         arguments like `--dangerously-skip-permissions`,
-         `plugin_marketplaces`, and `prompts/review.txt`; verify each still
-         appears in action.yml.
+      8. The "End-to-end flow" numbered list must mirror action.yml's
+         actual composite steps in order. CLAUDE.md names specific inputs
+         passed to `anthropics/claude-code-action@v1`
+         (`plugin_marketplaces`, `plugins`, `track_progress`,
+         `use_commit_signing`, `bot_name`, `claude_args`); verify each is
+         still set in action.yml.
 
-      9. The "State files crossing process boundaries" table must match the
-         actual JSON schema in prompts/review.txt
-         (`{"file", "line", "description", "reason"}`) AND the function names
-         `load_changes_by_file` and `build_comment_body` in
-         scripts/post-review-comments.py. If review.txt's schema changes or
-         either function is renamed, the table is wrong.
+      9. The "What used to be here and isn't anymore" section — describes
+         what was deleted in the rewrite (the 7-step composite,
+         `scripts/post-review-comments.py`, `/tmp/deepwork_changes.json`,
+         `claude-code-base-action@beta`). This section should stay stable
+         unless someone adds those things back. If any of those deleted
+         artifacts reappear in the repo, the section is a LIE and must be
+         updated.
 
-      10. The "Self-trigger guard" section's literal `deepwork-action[bot]`
-          must match action.yml's commit step user.name AND the
-          `if: github.actor != 'deepwork-action[bot]'` guard in
-          .github/workflows/example.yml. All three must stay synchronized.
+      10. The "Self-trigger guard" section asserts that GITHUB_TOKEN pushes
+          don't retrigger. If action.yml's push path ever switches to a
+          non-GITHUB_TOKEN credential (PAT, GitHub App token), this
+          assertion becomes false.
 
       11. The "Repository layout" bullet list must reflect the actual
-          top-level directories. Adding a new top-level directory (e.g.,
-          `lib/`, `tests/`) means CLAUDE.md's layout section is incomplete.
+          top-level files and directories. Verify that action.yml,
+          prompts/review.txt, .github/workflows/example.yml, .deepwork/
+          (and in particular .deepwork/review/ but NOT .deepwork/tmp/),
+          and .deepreview are all still present and still described
+          correctly. If `scripts/` reappears, or a new top-level directory
+          is added, this list is incomplete.
 
-      12. CLAUDE.md asserts the entire action is defined in "action.yml, one
-          prompt file, and one Python script". Adding a second prompt file
-          or script makes that claim wrong.
+      12. The "prompt contract" section enumerates 4 essential guarantees
+          about prompts/review.txt. Verify that review.txt still
+          (a) starts with `/review`, (b) enforces CI-mode rules including
+          never using AskUserQuestion, (c) instructs use of
+          `mcp__github_inline_comment__create_inline_comment` with
+          `confirmed: true` for per-change comments, (d) tells Claude not
+          to run `git commit`/`git push` directly. If review.txt diverges
+          from any of these, the CLAUDE.md section is wrong.
     additional_context:
       unchanged_matching_files: true
 
